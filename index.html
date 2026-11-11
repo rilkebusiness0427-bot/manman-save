@@ -41,7 +41,7 @@ const mny=n=>(n<0?'−':'')+'¥'+Math.abs(Number(n)||0).toLocaleString('zh-CN',{
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,10),sum=a=>cents(a.reduce((t,x)=>t+amount(x.amount),0));
 const isObj=o=>o&&typeof o==='object'&&!Array.isArray(o),moneyOk=n=>n!==''&&Number.isFinite(Number(n))&&Number(n)>=0&&Number(n)<=1e12;
 const validDate=s=>typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&toDay(new Date(Number(s.slice(0,4)),Number(s.slice(5,7))-1,Number(s.slice(8,10))))===s;
-const defaultCats=[['餐饮','🍜'],['交通','🚇'],['购物','🛍️'],['服装','👕'],['宠物','🐾'],['日用品','🧴'],['居家','🏠'],['娱乐','🎬'],['运动','🏃'],['医疗','💊'],['学习','📚'],['人情','🎁'],['旅行','🧳'],['数码','🎧'],['按摩SPA','🌿'],['其他','🧾']].map(([id,icon])=>({id,name:id==='按摩SPA'?'按摩 SPA':id,icon,archived:false}));
+const defaultCats=[['餐饮','🍜'],['交通','🚇'],['购物','🛍️'],['服装','👕'],['宠物','🐾'],['日用品','🧴'],['居家','🏠'],['娱乐','🎬'],['运动','🏃'],['医疗','💊'],['学习','📚'],['人情','🎁'],['旅行','🧳'],['数码','🎧'],['按摩SPA','🌿'],['其他','🧾']].map(([id,icon])=>({id,name:id==='按摩SPA'?'按摩 SPA':id==='居家'?'咖啡':id,icon:id==='居家'?'☕':icon,archived:false}));
 const icons=['🧾','🍜','☕','🚇','🛍️','👕','🐾','🧴','🏠','🎬','🏃','💊','📚','🎁','🧳','🎧','🌿','📱','💡','💼','🍰','🎮','🪴','🚗'];
 function legacyPlan(o){return {incomeItems:[{id:'salary',name:'到手工资',amount:moneyOk(o.income)?cents(o.income):11000}],fixedExpenses:[{id:'rent',name:'房租',amount:moneyOk(o.rent)?cents(o.rent):2352,dueDay:0},{id:'utilities',name:'水电燃气',amount:moneyOk(o.utilities)?cents(o.utilities):150,dueDay:0},...(amount(o.otherFixed)>0?[{id:'other-fixed',name:'其他固定支出',amount:cents(o.otherFixed),dueDay:0}]:[])],savePlan:moneyOk(o.savePlan)?cents(o.savePlan):1500,categoryBudgets:{}}}
 function cleanPlan(p){
@@ -52,7 +52,7 @@ function cleanPlan(p){
 }
 function normalize(o){
  if(!isObj(o))throw Error('数据格式无效');if(Number(o.version||o.schemaVersion||1)>2)throw Error('请使用较新的慢慢存版本');
- const out={schemaVersion:2,categories:clone(defaultCats),quickCategories:['餐饮','交通','购物','日用品'],defaultPlan:legacyPlan(o),monthPlans:{},fixedPayments:{},goalName:typeof o.goalName==='string'?o.goalName.slice(0,40):'第一笔储蓄',goal:moneyOk(o.goal)&&Number(o.goal)>0?cents(o.goal):10000,startSaved:moneyOk(o.startSaved)?cents(o.startSaved):0,expenses:[],savings:[]};
+ const out={schemaVersion:2,categoryDefaultsRevision:1,categories:clone(defaultCats),quickCategories:['餐饮','交通','购物','日用品'],defaultPlan:legacyPlan(o),monthPlans:{},fixedPayments:{},goalName:typeof o.goalName==='string'?o.goalName.slice(0,40):'第一笔储蓄',goal:moneyOk(o.goal)&&Number(o.goal)>0?cents(o.goal):10000,startSaved:moneyOk(o.startSaved)?cents(o.startSaved):0,expenses:[],savings:[]};
  for(const k of ['expenses','savings']){if(o[k]!==undefined&&!Array.isArray(o[k]))throw Error('记录格式无效');out[k]=(o[k]||[]).map(x=>{if(!isObj(x)||!moneyOk(x.amount)||!validDate(x.date)||(k==='expenses'&&(typeof x.category!=='string'||!x.category)))throw Error('记录内容无效');return {id:typeof x.id==='string'&&x.id?x.id:uid(),amount:cents(x.amount),date:x.date,note:String(x.note||'').slice(0,60),...(k==='expenses'?{category:x.category}:{})}});const ids=new Set();for(const x of out[k]){if(ids.has(x.id))x.id=uid();ids.add(x.id)}}
  if(o.schemaVersion===2||o.version===2){
   if(!Array.isArray(o.categories)||!o.categories.length)throw Error('分类格式无效');const ids=new Set();out.categories=o.categories.map(c=>{if(!isObj(c)||typeof c.id!=='string'||!c.id||ids.has(c.id)||typeof c.name!=='string'||!c.name.trim()||c.name.length>20)throw Error('分类无效');ids.add(c.id);return {id:c.id,name:c.name.trim(),icon:typeof c.icon==='string'&&c.icon.length<=12?c.icon:'🧾',archived:!!c.archived}});
@@ -61,6 +61,8 @@ function normalize(o){
   for(const [m,marks]of Object.entries(o.fixedPayments)){if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)||!isObj(marks))throw Error('缴费记录无效');out.fixedPayments[m]=Object.fromEntries(Object.entries(marks).map(([k,v])=>[k,!!v]))}
   if(Array.isArray(o.quickCategories))out.quickCategories=[...new Set(o.quickCategories.filter(x=>out.categories.some(c=>c.id===x&&!c.archived)))].slice(0,8);
  }
+ // Preserve stable category IDs so existing records, budgets and shortcuts keep their links.
+ if(!o.categoryDefaultsRevision){const home=out.categories.find(c=>c.id==='居家'&&c.name==='居家');if(home){home.name='咖啡';home.icon='☕'}}
  // Keep categories from older or imported records visible in history and totals.
  for(const x of out.expenses)if(!out.categories.some(c=>c.id===x.category))out.categories.push({id:x.category,name:x.category.slice(0,20),icon:'🧾',archived:false});
  if(!out.categories.some(c=>!c.archived))out.categories[0].archived=false;
